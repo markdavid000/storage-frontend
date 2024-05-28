@@ -1,118 +1,215 @@
-import Image from "next/image";
-import { Inter } from "next/font/google";
-
-const inter = Inter({ subsets: ["latin"] });
+// import required modules
+// the essential modules to interact with frontend are below imported.
+// ethers is the core module that makes RPC calls using any wallet provider like Metamask which is esssential to interact with Smart Contract
+import { ethers } from "ethers";
+// A single Web3 / Ethereum provider solution for all Wallets
+import Web3Modal from "web3modal";
+// yet another module used to provide rpc details by default from the wallet connected
+import WalletConnectProvider from "@walletconnect/web3-provider";
+// react hooks for setting and changing states of variables
+import { useEffect, useState } from "react";
 
 export default function Home() {
-  return (
-    <main
-      className={`flex min-h-screen flex-col items-center justify-between p-24 ${inter.className}`}
-    >
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">pages/index.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
-      </div>
+  // env variables are initalised
+  // contractAddress is deployed smart contract addressed
+  const contractAddress = process.env.CONTRACT_ADDRESS;
+  // application binary interface is something that defines structure of smart contract deployed.
+  const abi = process.env.ABI;
 
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-full sm:before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full sm:after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700/10 after:dark:from-sky-900 after:dark:via-[#0141ff]/40 before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
+  // hooks for required variables
+  const [provider, setProvider] = useState();
+
+  // response from read operation is stored in the below variable
+  const [storedNumber, setStoredNumber] = useState();
+
+  // the value entered in the input field is stored in the below variable
+  const [enteredMessage, setEnteredMessage] = useState("");
+
+  // the variable is used to invoke loader
+  const [storeLoader, setStoreLoader] = useState(false);
+  const [retrieveLoader, setRetrieveLoader] = useState(false);
+
+  async function initWallet() {
+    try {
+      // check if any wallet provider is installed. i.e metamask xdcpay etc
+      if (typeof window.ethereum === "undefined") {
+        console.log("Please install wallet.");
+        alert("Please install wallet.");
+        return;
+      } else {
+        // raise a request for the provider to connect the account to our website
+        const web3ModalVar = new Web3Modal({
+          cacheProvider: true,
+          providerOptions: {
+            walletconnect: {
+              package: WalletConnectProvider,
+            },
+          },
+        });
+
+        const instanceVar = await web3ModalVar.connect();
+        const providerVar = new ethers.providers.Web3Provider(instanceVar);
+        setProvider(providerVar);
+        readMessage(providerVar);
+        return;
+      }
+    } catch (error) {
+      console.log(error);
+      return;
+    }
+  }
+
+  async function readMessage(provider: any) {
+    try {
+      setRetrieveLoader(true);
+      const signer = provider.getSigner();
+
+      // initalize smartcontract with the essentials detials.
+      const smartContract = new ethers.Contract(contractAddress, abi, provider);
+      const contractWithSigner = smartContract.connect(signer);
+
+      // interact with the methods in smart contract
+      const response = await contractWithSigner.getMessage();
+
+      console.log(response);
+      setStoredNumber(response);
+      setRetrieveLoader(false);
+      setEnteredMessage("");
+    } catch (error: any) {
+      if (error.reason === "Not Authorized") {
+        alert("You're not Authorized");
+      }
+      setRetrieveLoader(false);
+    }
+  }
+
+  async function writeMessage() {
+    if (enteredMessage === "") {
+      alert("Please enter your message");
+    } else {
+      try {
+        setStoreLoader(true);
+        const signer = provider.getSigner();
+        const smartContract = new ethers.Contract(
+          contractAddress,
+          abi,
+          provider
+        );
+        const contractWithSigner = smartContract.connect(signer);
+
+        // interact with the methods in smart contract as it's a write operation, we need to invoke the transation usinf .wait()
+        const writeNumTX = await contractWithSigner.setMessage(enteredMessage);
+        await writeNumTX.wait();
+        setStoreLoader(false);
+
+        alert(`Message stored successfully ${enteredMessage}`);
+      } catch (error: any) {
+        if (error.reason === "execution reverted: Not Authorized") {
+          alert("You're not Authorized");
+        } else if (error.reason === "user rejected transaction") {
+          alert("User Rejected Transaction");
+        }
+        setStoreLoader(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    initWallet();
+  }, []);
+
+  return (
+    <div className="m-6 space-y-4">
+      <h1 className="text-gray-700 text-3xl font-bold">
+        Storage Frontend Demo
+      </h1>
+
+      <h3>
+        This action retrieves the saved message from smart contract. (i.e Read
+        Operation)
+      </h3>
+      <button
+        className="px-4 py-1 bg-slate-300 hover:bg-slate-500 flex justify-around transition-all w-32"
+        onClick={() => readMessage(provider)}
+      >
+        {" "}
+        {retrieveLoader ? (
+          <svg
+            className="animate-spin m-1 h-5 w-5 text-white"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            ></circle>
+            <path
+              className="opacity-75 text-gray-700"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+        ) : (
+          "RETRIEVE"
+        )}{" "}
+      </button>
+      <h4>
+        The stored message is{" "}
+        <span className="font-bold">{storedNumber ? storedNumber : "!!"}</span>{" "}
+      </h4>
+      <hr></hr>
+
+      <h3>
+        This action saves inputted message into the smart contract. (i.e Write
+        Operation){" "}
+      </h3>
+      <div>
+        <input
+          value={enteredMessage}
+          onChange={(e: any) => {
+            setEnteredMessage(e.target.value);
+          }}
+          className="text-gray-700 placeholder:italic transition-all placeholder:text-gray-500 w-4/6 border border-gray-500 rounded-md p-2 shadow-sm focus:outline-none focus:border-sky-500 focus:ring-sky-500 focus:ring-1 sm:text-sm"
+          placeholder="Enter a number to store"
+          type="text"
+          name="store"
         />
       </div>
-
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Discover and deploy boilerplate example Next.js&nbsp;projects.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50 text-balance`}>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
+      <button
+        onClick={writeMessage}
+        className="px-4 py-1 bg-slate-300 flex justify-around hover:bg-slate-500 transition-all w-32"
+      >
+        {" "}
+        {storeLoader ? (
+          <svg
+            className="animate-spin m-1 h-5 w-5 text-white"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            ></circle>
+            <path
+              className="opacity-75 text-gray-700"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+        ) : (
+          "STORE"
+        )}{" "}
+      </button>
+    </div>
   );
 }
